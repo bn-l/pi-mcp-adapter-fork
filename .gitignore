@@ -10,3 +10,4 @@ worker-*.md
 plan.md
 triage-*.md
 review-*.md
+coverage/
