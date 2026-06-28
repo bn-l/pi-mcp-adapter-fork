@@ -286,6 +286,13 @@ export function updateStatusBar(state: McpExtensionState): void {
     return;
   }
   const connectedCount = state.manager.getAllConnections().size;
+  if (connectedCount < total) {
+    const cachedCount = [...state.toolMetadata.keys()].length;
+    if (cachedCount > 0) {
+      ui.setStatus("mcp", ui.theme.fg("accent", `MCP: ${connectedCount}/${total} connected (${cachedCount} cached)`));
+      return;
+    }
+  }
   ui.setStatus("mcp", ui.theme.fg("accent", `MCP: ${connectedCount}/${total} servers`));
 }
 
