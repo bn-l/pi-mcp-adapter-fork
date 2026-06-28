@@ -26,4 +26,15 @@ describe("executeCall", () => {
     const r = await executeCall(s, "srv_echo", {}, "srv");
     expect(r.details.error).toBe("server_backoff");
   });
+
+  it("error tool shows expected params", async () => {
+    const s = {
+      config: { mcpServers: { srv: { command: "echo" } }, settings: { toolPrefix: "server" } },
+      toolMetadata: new Map([["srv", [{ name: "srv_bad", originalName: "bad", description: "bad", inputSchema: { type: "object", properties: { x: { type: "string" } } } }]]]),
+      manager: { getConnection: () => ({ status: "connected", client: { callTool: vi.fn().mockResolvedValue({ content: [{ type: "text", text: "error output" }], isError: true }) } }), touch: vi.fn(), incrementInFlight: vi.fn(), decrementInFlight: vi.fn(), close: vi.fn(), connect: vi.fn(), handleUrlElicitationRequired: vi.fn() },
+      failureTracker: new Map(), completedUiSessions: [],
+    } as any;
+    const r = await executeCall(s, "srv_bad", {});
+    expect(r.content[0].text).toContain("Error:");
+  });
 });
