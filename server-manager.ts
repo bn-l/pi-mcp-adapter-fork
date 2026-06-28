@@ -440,3 +440,30 @@ function resolveEnv(env?: Record<string, string>): Record<string, string> {
 function resolveHeaders(headers?: Record<string, string>): Record<string, string> | undefined {
   return interpolateEnvRecord(headers);
 }
+
+/**
+ * Network-level and stale-session errors that warrant a reconnect + single retry.
+ * Conservative: only catches errors where the server is likely alive but the
+ * connection object is stale (dead SSE, expired session, refused after restart).
+ *
+ * Extended from oh-my-pi's MCP client patterns.
+ */
+const RETRIABLE_CONNECTION_PATTERNS = [
+  "econnrefused",
+  "econnreset",
+  "epipe",
+  "enetunreach",
+  "ehostunreach",
+  "fetch failed",
+  "transport not connected",
+  "transport closed",
+  "network error",
+];
+
+export function isRetriableConnectionError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  // Stale session (server restarted, old session ID is gone)
+  if (/^http (404|502|503):/.test(message)) return true;
+  return RETRIABLE_CONNECTION_PATTERNS.some(pattern => message.includes(pattern));
+}

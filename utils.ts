@@ -61,6 +61,8 @@ export function getConfigPathFromArgv(): string | undefined {
 
 export function interpolateEnvVars(value: string): string {
   return value
+    .replace(/\$\{(\w+):-([^}]*)\}/g, (_, name, fallback) => process.env[name] || fallback)
+    .replace(/\$\{(\w+):\+([^}]*)\}/g, (_, name, alt) => process.env[name] ? alt : "")
     .replace(/\$\{(\w+)\}/g, (_, name) => process.env[name] ?? "")
     .replace(/\$env:(\w+)/g, (_, name) => process.env[name] ?? "");
 }
