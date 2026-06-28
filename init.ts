@@ -118,9 +118,12 @@ export async function initializeMcp(
 
   const startupServers = bootstrapAll
     ? serverEntries
-    : serverEntries.filter(([, definition]) => {
+    : serverEntries.filter(([name, definition]) => {
         const mode = definition.lifecycle ?? "lazy";
-        return mode === "keep-alive" || mode === "eager";
+        if (mode === "keep-alive" || mode === "eager") return true;
+        // Also connect servers that have valid cached metadata from a previous successful connection
+        if (cache?.servers?.[name] && isServerCacheValid(cache.servers[name], definition)) return true;
+        return false;
       });
 
   if (ctx.hasUI && startupServers.length > 0) {
