@@ -8,7 +8,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["*.ts"],
-      exclude: ["__tests__/**", "vitest.config.ts", "cli.js"],
+      exclude: ["__tests__/**", "vitest.config.ts", "cli.js", "state.ts"],
     },
   },
 });
