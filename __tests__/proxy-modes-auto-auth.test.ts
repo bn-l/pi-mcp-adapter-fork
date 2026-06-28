@@ -250,4 +250,95 @@ describe("proxy auto auth", () => {
     expect(manager.connect).toHaveBeenCalledTimes(1);
     expect(result.content[0].text).toContain("ok");
   });
+
+  it("skips autoAuth in executeConnect when setting is disabled", async () => {
+    const { executeConnect } = await import("../proxy-modes.ts");
+    const current = { status: "needs-auth" };
+    const manager = {
+      connect: vi.fn(async () => current),
+      close: vi.fn(async () => {}),
+      getConnection: vi.fn(() => current),
+    };
+    const state = {
+      config: {
+        settings: {},
+        mcpServers: { demo: { url: "https://api.example.com/mcp", auth: "oauth" } },
+      },
+      manager, toolMetadata: new Map(), failureTracker: new Map(),
+      completedUiSessions: [],
+    } as any;
+    mocks.supportsOAuth.mockReturnValue(true);
+    const result = await executeConnect(state, "demo");
+    expect(result.details.error).toBe("auth_required");
+    expect(mocks.authenticate).not.toHaveBeenCalled();
+  });
+
+  it("skips autoAuth in executeConnect when server has no URL", async () => {
+    const { executeConnect } = await import("../proxy-modes.ts");
+    const current = { status: "needs-auth" };
+    const manager = {
+      connect: vi.fn(async () => current),
+      close: vi.fn(async () => {}),
+      getConnection: vi.fn(() => current),
+    };
+    const state = {
+      config: {
+        settings: { autoAuth: true },
+        mcpServers: { demo: { command: "echo" } },
+      },
+      manager, toolMetadata: new Map(), failureTracker: new Map(),
+      completedUiSessions: [],
+    } as any;
+    const result = await executeConnect(state, "demo");
+    expect(result.details.error).toBe("auth_required");
+  });
+
+  it("autoAuth fails in executeConnect and returns auth_required", async () => {
+    const { executeConnect } = await import("../proxy-modes.ts");
+    mocks.authenticate.mockRejectedValueOnce(new Error("token_expired"));
+    const current = { status: "needs-auth" };
+    const manager = {
+      connect: vi.fn(async () => current),
+      close: vi.fn(async () => {}),
+      getConnection: vi.fn(() => current),
+    };
+    const state = {
+      config: {
+        settings: { autoAuth: true },
+        mcpServers: { demo: { url: "https://api.example.com/mcp", auth: "oauth" } },
+      },
+      manager, toolMetadata: new Map(), failureTracker: new Map(),
+      completedUiSessions: [],
+    } as any;
+    mocks.supportsOAuth.mockReturnValue(true);
+    const result = await executeConnect(state, "demo");
+    expect(result.details.error).toBe("auth_required");
+  });
+
+  it("executeCall auto-auth fails when auth_required", async () => {
+    const { executeCall } = await import("../proxy-modes.ts");
+    mocks.lazyConnect.mockResolvedValue(false);
+    mocks.supportsOAuth.mockReturnValue(true);
+    const current = { status: "needs-auth" };
+    const manager = {
+      connect: vi.fn(async () => current),
+      close: vi.fn(async () => {}),
+      getConnection: vi.fn(() => current),
+      touch: vi.fn(),
+      incrementInFlight: vi.fn(),
+      decrementInFlight: vi.fn(),
+    };
+    const state = {
+      config: {
+        settings: { autoAuth: true, toolPrefix: "server" },
+        mcpServers: { demo: { url: "https://api.example.com/mcp", auth: "oauth" } },
+      },
+      manager,
+      toolMetadata: new Map(),
+      failureTracker: new Map(),
+      completedUiSessions: [],
+    } as any;
+    const result = await executeCall(state, "demo_search", { q: "x" }, "demo");
+    expect(result.details.error).toBe("auth_required");
+  });
 });
