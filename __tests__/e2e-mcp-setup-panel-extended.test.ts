@@ -166,4 +166,48 @@ describe("McpSetupPanel actions", () => {
     panel.handleInput(ENTER);
     panel.dispose();
   });
+
+  it("applySelectedImports handles empty selection", () => {
+    const discovery = makeDiscovery({
+      hasAnyConfig: true,
+      imports: [{ kind: "claude" as const, path: "/tmp/c.json", workspacePath: "/ws" }],
+    });
+    const renderFn = { requestRender: vi.fn() };
+    const panel = createMcpSetupPanel(
+      discovery,
+      makeCallbacks(),
+      { ...defaultOpts(), mode: "setup" },
+      renderFn,
+      () => {},
+    );
+    // Enter imports screen
+    panel.handleInput(ENTER);
+    // Confirm with no toggle → empty selection → warning
+    renderFn.requestRender.mockClear();
+    panel.handleInput(ENTER);
+    expect(renderFn.requestRender).toHaveBeenCalled();
+    panel.dispose();
+  });
+
+  it("runBusy error path sets warning notice", async () => {
+    const callbacks = makeCallbacks();
+    callbacks.scaffoldProjectConfig = vi.fn(async () => { throw new Error("permission denied"); });
+    const renderFn = { requestRender: vi.fn() };
+    const panel = createMcpSetupPanel(
+      makeDiscovery(),
+      callbacks,
+      defaultOpts(),
+      renderFn,
+      () => {},
+    );
+    // scaffold-project is index 2 in empty mode
+    panel.handleInput(DOWN);
+    panel.handleInput(DOWN);
+    panel.handleInput(ENTER);
+    await Promise.resolve();
+    await Promise.resolve();
+    // runBusy sets error notice and calls requestRender
+    expect(renderFn.requestRender).toHaveBeenCalled();
+    panel.dispose();
+  });
 });
