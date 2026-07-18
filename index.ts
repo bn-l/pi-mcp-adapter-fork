@@ -136,6 +136,7 @@ export default function mcpAdapter(pi: ExtensionAPI) {
   }
 
   function createPromptCommandHandler(
+    pi: ExtensionAPI,
     serverName: string,
     promptName: string,
     promptArgs?: McpPromptArgument[],
@@ -177,9 +178,7 @@ export default function mcpAdapter(pi: ExtensionAPI) {
         .filter(c => c.type === "text")
         .map(c => (c as { type: "text"; text: string }).text)
         .join("\n\n");
-      if (ctx.hasUI) {
-        ctx.ui.setEditorText(text);
-      }
+      pi.sendUserMessage(text);
     };
   }
 
@@ -206,6 +205,7 @@ export default function mcpAdapter(pi: ExtensionAPI) {
       pi.registerCommand(name, {
         description: info.description,
         handler: createPromptCommandHandler(
+          pi,
           name.split(":")[0],
           name.slice(name.indexOf(":") + 1),
           info.args,
@@ -273,6 +273,7 @@ export default function mcpAdapter(pi: ExtensionAPI) {
         pi.registerCommand(commandName, {
           description: prompt.description || `MCP prompt from ${serverName}`,
           handler: createPromptCommandHandler(
+            pi,
             serverName,
             prompt.name,
             prompt.arguments?.map(a => ({
