@@ -25,7 +25,7 @@ vi.mock("../metadata-cache.ts", () => ({
   serializePrompts: mocks.serializePrompts,
   getMetadataCachePath: mocks.getMetadataCachePath,
 }));
-vi.mock("../utils.ts", () => ({ openPath: vi.fn(), parallelLimit: async (_: any, __: any, fn: any) => await fn(null) }));
+vi.mock("../utils.ts", () => ({ openPath: vi.fn(), parallelLimit: async (_: any, __: any, fn: any) => await fn(null), extractToolUiStreamMode: vi.fn(() => undefined) }));
 vi.mock("../server-manager.ts", () => ({ McpServerManager: vi.fn(() => ({ connect: vi.fn().mockResolvedValue({ status: "connected", tools: [], resources: [] }), close: vi.fn(), closeAll: vi.fn(), getConnection: vi.fn(), getAllConnections: vi.fn(() => new Map()), isValid: vi.fn(() => true) })) }));
 
 describe("isTuiMode", () => {

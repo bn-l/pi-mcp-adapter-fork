@@ -249,44 +249,29 @@ describe("mcpAdapter session lifecycle", () => {
     );
   });
 
-  it("starts a replacement init immediately and shuts down stale init results", async () => {
-    const first = createDeferred<any>();
-    const second = createDeferred<any>();
-    mocks.initializeMcp
-      .mockReturnValueOnce(first.promise)
-      .mockReturnValueOnce(second.promise);
+  it("shuts down previous state on new session_start", async () => {
+    const firstState = createState();
+    mocks.initializeMcp.mockResolvedValueOnce(firstState);
 
     const { default: mcpAdapter } = await import("../index.ts");
     const { api, handlers } = createPi();
     mcpAdapter(api);
 
-    const sessionStart = handlers.get("session_start");
-    expect(sessionStart).toBeTypeOf("function");
+    const sessionStart = handlers.get("session_start")!;
 
-    await sessionStart?.({}, {});
-    expect(mocks.initializeMcp).toHaveBeenCalledTimes(1);
-    expect(mocks.shutdownOAuth).toHaveBeenCalledTimes(1);
+    // First session — awaits and applies state
+    await sessionStart({}, {});
+    expect(mocks.updateStatusBar).toHaveBeenCalledWith(firstState);
+    expect(firstState.lifecycle.gracefulShutdown).not.toHaveBeenCalled();
 
-    await sessionStart?.({}, {});
-    expect(mocks.initializeMcp).toHaveBeenCalledTimes(2);
-    expect(mocks.shutdownOAuth).toHaveBeenCalledTimes(2);
+    // Second session — should shut down first state
+    const secondState = createState();
+    mocks.initializeMcp.mockResolvedValueOnce(secondState);
 
-    const activeState = createState();
-    second.resolve(activeState);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(mocks.updateStatusBar).toHaveBeenCalledWith(activeState);
-    expect(activeState.lifecycle.gracefulShutdown).not.toHaveBeenCalled();
-
-    const staleState = createState();
-    first.resolve(staleState);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(mocks.updateStatusBar).not.toHaveBeenCalledWith(staleState);
-    expect(mocks.flushMetadataCache).toHaveBeenCalledWith(staleState);
-    expect(staleState.lifecycle.gracefulShutdown).toHaveBeenCalledTimes(1);
+    await sessionStart({}, {});
+    expect(mocks.updateStatusBar).toHaveBeenCalledWith(secondState);
+    expect(firstState.lifecycle.gracefulShutdown).toHaveBeenCalledTimes(1);
+    expect(mocks.flushMetadataCache).toHaveBeenCalledWith(firstState);
   });
 
   it("shuts down OAuth on session_shutdown", async () => {

@@ -317,33 +317,20 @@ export default function mcpAdapter(pi: ExtensionAPI) {
       console.error("MCP OAuth initialization failed:", err);
     });
 
-    const promise = initializeMcp(pi, ctx);
-    initPromise = promise;
-
-    promise.then(async (nextState) => {
-      if (generation !== lifecycleGeneration || initPromise !== promise) {
-        try {
-          await shutdownState(nextState, "stale_session_start");
-        } catch (error) {
-          console.error("MCP: failed to clean stale session state", error);
-        }
+    try {
+      const nextState = await initializeMcp(pi, ctx);
+      if (generation !== lifecycleGeneration) {
+        await shutdownState(nextState, "stale_session_start").catch(() => {});
         return;
       }
-
       state = nextState;
       updateStatusBar(nextState);
       syncPromptCommands(nextState);
-      initPromise = null;
-    }).catch(err => {
-      if (generation !== lifecycleGeneration) {
-        return;
-      }
-      if (initPromise !== promise && initPromise !== null) {
-        return;
-      }
+    } catch (err) {
+      if (generation !== lifecycleGeneration) return;
       console.error("MCP initialization failed:", err);
-      initPromise = null;
-    });
+    }
+    initPromise = null;
   });
 
   pi.on("session_shutdown", async () => {
