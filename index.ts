@@ -457,15 +457,12 @@ export default function mcpAdapter(pi: ExtensionAPI) {
   pi.registerCommand("mcp-prompts-debug", {
     description: "List all registered MCP prompt slash commands (debug)",
     handler: async (_args, ctx) => {
-      if (ctx.hasUI) {
-        const cmds = [...registeredPromptCommands].sort();
-        ctx.ui.notify(
-          cmds.length
-            ? `Registered ${cmds.length} prompt slash commands:\n${cmds.join("\n")}`
-            : "No prompt slash commands registered.",
-          cmds.length ? "info" : "warning",
-        );
-      }
+      const cmds = [...registeredPromptCommands].sort();
+      const msg = cmds.length
+        ? `Registered ${cmds.length} prompt slash commands:\n${cmds.join("\n")}`
+        : "No prompt slash commands registered.";
+      if (ctx.hasUI) ctx.ui.notify(msg, cmds.length ? "info" : "warning");
+      else console.log(msg);
     },
   });
 
