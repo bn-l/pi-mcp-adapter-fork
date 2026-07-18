@@ -206,8 +206,8 @@ describe("Bootstrap registration from cache", () => {
     // Now import the factory and execute it
     const { default: mcpAdapter } = await import("../index.ts");
     mcpAdapter(mockPi as any);
-    // mcp + mcp-auth + 2 prompt commands = 4
-    expect(registeredCommands.length).toBe(4);
+    // mcp + mcp-auth + mcp-prompts-debug + 2 prompt commands = 5
+    expect(registeredCommands.length).toBe(5);
     // Prompt commands are registered first (from cache bootstrap)
     const promptCmds = registeredCommands.filter(c => c.name.includes(":"));
     expect(promptCmds.length).toBe(2);

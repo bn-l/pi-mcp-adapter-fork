@@ -326,6 +326,14 @@ export default function mcpAdapter(pi: ExtensionAPI) {
       state = nextState;
       updateStatusBar(nextState);
       syncPromptCommands(nextState);
+
+      // Add ":" as an autocomplete trigger so /<server>:<prompt> commands show suggestions
+      if (ctx.hasUI && ctx.ui.addAutocompleteProvider) {
+        ctx.ui.addAutocompleteProvider((provider) => {
+          (provider as any).triggerCharacters = [...((provider as any).triggerCharacters ?? []), ":"];
+          return provider;
+        });
+      }
     } catch (err) {
       if (generation !== lifecycleGeneration) return;
       console.error("MCP initialization failed:", err);
