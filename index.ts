@@ -453,6 +453,21 @@ export default function mcpAdapter(pi: ExtensionAPI) {
       await authenticateServer(serverName, state.config, ctx);
     },
   });
+  // Debug: list registered prompt slash commands
+  pi.registerCommand("mcp-prompts-debug", {
+    description: "List all registered MCP prompt slash commands (debug)",
+    handler: async (_args, ctx) => {
+      if (ctx.hasUI) {
+        const cmds = [...registeredPromptCommands].sort();
+        ctx.ui.notify(
+          cmds.length
+            ? `Registered ${cmds.length} prompt slash commands:\n${cmds.join("\n")}`
+            : "No prompt slash commands registered.",
+          cmds.length ? "info" : "warning",
+        );
+      }
+    },
+  });
 
   if (shouldRegisterProxyTool) {
     (pi.registerTool as (tool: unknown) => unknown)({
