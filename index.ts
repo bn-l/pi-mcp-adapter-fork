@@ -1,5 +1,6 @@
-import type { ExtensionAPI, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { McpExtensionState } from "./state.ts";
+import type { McpPromptArgument } from "./types.ts";
 import { Type } from "typebox";
 import { showStatus, showTools, reconnectServers, authenticateServer, logoutServer, openMcpAuthPanel, openMcpPanel, openMcpSetup } from "./commands.ts";
 import { loadMcpConfig } from "./config.ts";
@@ -45,6 +46,189 @@ export default function mcpAdapter(pi: ExtensionAPI) {
       throw flushError;
     }
   }
+
+  // --- MCP prompt slash command registration ---
+  const registeredPromptCommands = new Set<string>();
+
+  /**
+   * Parse prompt arguments from a raw command-line string.
+   * Supports --key=value and --key="value" named args, plus positional args
+   * for unfilled required arguments. Adapted from Gemini CLI's McpPromptLoader.
+   */
+  function parsePromptArgs(rawArgs: string, promptArgs?: McpPromptArgument[]): Record<string, string> | string {
+    if (!rawArgs.trim() || !promptArgs || promptArgs.length === 0) {
+      return {};
+    }
+
+    const argValues: Record<string, string> = {};
+    // Named args: --key=value or --key="value"
+    const namedArgRegex = /--([^=]+)=(?:"((?:\\.|[^"\\])*)"|([^ ]+))/g;
+    let match: RegExpExecArray | null;
+    let lastIndex = 0;
+    const positionalParts: string[] = [];
+
+    while ((match = namedArgRegex.exec(rawArgs)) !== null) {
+      const key = match[1];
+      const value = (match[2] ?? match[3]).replace(/\\(.)/g, "$1");
+      argValues[key] = value;
+      if (match.index > lastIndex) {
+        positionalParts.push(rawArgs.substring(lastIndex, match.index));
+      }
+      lastIndex = namedArgRegex.lastIndex;
+    }
+
+    if (lastIndex < rawArgs.length) {
+      positionalParts.push(rawArgs.substring(lastIndex));
+    }
+
+    const positionalString = positionalParts.join("").trim();
+    // Extract quoted or unquoted positional args
+    const positionalArgRegex = /(?:"((?:\\.|[^"\\])*)"|([^ ]+))/g;
+    const positionalArgs: string[] = [];
+    while ((match = positionalArgRegex.exec(positionalString)) !== null) {
+      positionalArgs.push((match[1] ?? match[2]).replace(/\\(.)/g, "$1"));
+    }
+
+    // Fill named args
+    const promptInputs: Record<string, string> = {};
+    for (const arg of promptArgs) {
+      if (argValues[arg.name] !== undefined) {
+        promptInputs[arg.name] = argValues[arg.name];
+      }
+    }
+
+    // Fill remaining required args positionally
+    const unfilled = promptArgs.filter(a => a.required && promptInputs[a.name] === undefined);
+    if (unfilled.length === 1) {
+      promptInputs[unfilled[0].name] = positionalArgs.join(" ");
+    } else {
+      for (let i = 0; i < unfilled.length; i++) {
+        if (i < positionalArgs.length) {
+          promptInputs[unfilled[i].name] = positionalArgs[i];
+        } else {
+          const missing = unfilled.slice(i).map(a => a.name);
+          return `Missing required argument(s): ${missing.map(n => `--${n}`).join(", ")}`;
+        }
+      }
+    }
+
+    // Fill optional args positionally (after required are satisfied)
+    const optionals = promptArgs.filter(a => !a.required && promptInputs[a.name] === undefined);
+    const positionalIdx = unfilled.length;
+    for (let i = 0; i < optionals.length; i++) {
+      if (positionalIdx + i < positionalArgs.length) {
+        promptInputs[optionals[i].name] = positionalArgs[positionalIdx + i];
+      }
+    }
+
+    return promptInputs;
+  }
+
+  function buildPromptHelp(promptArgs?: McpPromptArgument[]): string {
+    if (!promptArgs || promptArgs.length === 0) return "No arguments required.";
+    const lines = ["Arguments:"];
+    for (const arg of promptArgs) {
+      const required = arg.required ? " (required)" : "";
+      const desc = arg.description ? ` — ${arg.description}` : "";
+      lines.push(`  --${arg.name}${required}${desc}`);
+    }
+    return lines.join("\n");
+  }
+
+  function createPromptCommandHandler(
+    serverName: string,
+    promptName: string,
+    promptArgs?: McpPromptArgument[],
+  ) {
+    return async (args: string, ctx: ExtensionCommandContext) => {
+      if (!state && initPromise) {
+        try {
+          state = await initPromise;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (ctx.hasUI) ctx.ui.notify(`MCP initialization failed: ${message}`, "error");
+          return;
+        }
+      }
+      if (!state) {
+        if (ctx.hasUI) ctx.ui.notify("MCP not initialized", "error");
+        return;
+      }
+
+      const parsed = parsePromptArgs(args, promptArgs);
+      if (typeof parsed === "string") {
+        if (ctx.hasUI) {
+          ctx.ui.notify(`${parsed}\n\n${buildPromptHelp(promptArgs)}`, "error");
+        }
+        return;
+      }
+
+      const result = await executeGetPrompt(state, serverName, promptName, parsed);
+
+      if (result.details?.error) {
+        if (ctx.hasUI) {
+          const errorText = result.content.find(c => c.type === "text") as { type: "text"; text: string } | undefined;
+          ctx.ui.notify(errorText?.text ?? `Failed to get prompt "${promptName}"`, "error");
+        }
+        return;
+      }
+
+      const text = result.content
+        .filter(c => c.type === "text")
+        .map(c => (c as { type: "text"; text: string }).text)
+        .join("\n\n");
+      if (ctx.hasUI) {
+        ctx.ui.setEditorText(text);
+      }
+    };
+  }
+
+  function syncPromptCommands(currentState: McpExtensionState | null) {
+    const newCommands = new Map<string, { description: string; args?: McpPromptArgument[] }>();
+
+    if (currentState) {
+      for (const serverName of Object.keys(currentState.config.mcpServers)) {
+        const connection = currentState.manager.getConnection(serverName);
+        if (!connection || connection.status !== "connected") continue;
+
+        for (const prompt of connection.prompts) {
+          const commandName = `${serverName}:${prompt.name}`;
+          newCommands.set(commandName, {
+            description: prompt.description || `MCP prompt from ${serverName}`,
+            args: prompt.arguments,
+          });
+        }
+      }
+    }
+
+    // Register current prompt commands (overwrites stale ones)
+    for (const [name, info] of newCommands) {
+      pi.registerCommand(name, {
+        description: info.description,
+        handler: createPromptCommandHandler(
+          name.split(":")[0],
+          name.slice(name.indexOf(":") + 1),
+          info.args,
+        ),
+      });
+    }
+
+    // Stale commands: overwrite with "unavailable" handler
+    for (const oldName of registeredPromptCommands) {
+      if (!newCommands.has(oldName)) {
+        pi.registerCommand(oldName, {
+          description: "MCP prompt (server unavailable)",
+          handler: async (_args, ctx) => {
+            if (ctx.hasUI) ctx.ui.notify(`MCP prompt "${oldName}" is not available — server may be disconnected.`, "warning");
+          },
+        });
+      }
+    }
+
+    registeredPromptCommands.clear();
+    for (const name of newCommands.keys()) registeredPromptCommands.add(name);
+  }
+  // --- end prompt slash command registration ---
 
   const earlyConfigPath = getConfigPathFromArgv();
   const earlyConfig = loadMcpConfig(earlyConfigPath);
@@ -124,6 +308,7 @@ export default function mcpAdapter(pi: ExtensionAPI) {
 
       state = nextState;
       updateStatusBar(nextState);
+      syncPromptCommands(nextState);
       initPromise = null;
     }).catch(err => {
       if (generation !== lifecycleGeneration) {
@@ -151,6 +336,17 @@ export default function mcpAdapter(pi: ExtensionAPI) {
     } catch (error) {
       console.error("MCP: session shutdown cleanup failed", error);
     }
+
+    // Mark all prompt commands as unavailable
+    for (const oldName of registeredPromptCommands) {
+      pi.registerCommand(oldName, {
+        description: "MCP prompt (server unavailable)",
+        handler: async (_args, ctx) => {
+          if (ctx.hasUI) ctx.ui.notify(`MCP prompt "${oldName}" is not available — server may be disconnected.`, "warning");
+        },
+      });
+    }
+    registeredPromptCommands.clear();
   });
 
   pi.registerCommand("mcp", {

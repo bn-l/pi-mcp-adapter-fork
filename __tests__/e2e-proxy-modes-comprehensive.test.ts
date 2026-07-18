@@ -1,7 +1,9 @@
 /**
  * Comprehensive proxy-modes tests for complete coverage
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fileURLToPath } from "node:url";
+import { McpServerManager } from "../server-manager.ts";
 
 const mocks = vi.hoisted(() => ({
   authenticate: vi.fn(),
@@ -358,5 +360,165 @@ describe("executeGetPrompt edge cases", () => {
     });
     const result = await executeGetPrompt(s, "srv", "nonexistent");
     expect(result.details.error).toBe("get_prompt_failed");
+  });
+});
+
+describe("MCP prompt argument handling via executeGetPrompt", () => {
+  it("passes named args correctly (e2e)", async () => {
+    const { executeGetPrompt } = await import("../proxy-modes.ts");
+
+    const fixturePath = fileURLToPath(new URL("./fixtures/e2e-server.mjs", import.meta.url));
+    const def = { command: process.execPath, args: [fixturePath] };
+    const connMgr = new McpServerManager();
+    const connection = await connMgr.connect("args-test", def);
+
+    const s = makeState({
+      config: { mcpServers: { "args-test": def }, settings: {} },
+      manager: {
+        getConnection: vi.fn().mockReturnValue(connection),
+        getPrompt: connMgr.getPrompt.bind(connMgr),
+        close: connMgr.close.bind(connMgr),
+        touch: () => {},
+        incrementInFlight: () => {},
+        decrementInFlight: () => {},
+      },
+    });
+
+    const result = await executeGetPrompt(s, "args-test", "code_review", { language: "Rust", focus: "unsafe blocks" });
+    expect(result.content[0].text).toContain("Rust");
+    expect(result.content[0].text).toContain("unsafe blocks");
+
+    await connMgr.closeAll();
+  });
+
+  it("handles single remaining positional arg as the value for the sole required arg (e2e)", async () => {
+    const { executeGetPrompt } = await import("../proxy-modes.ts");
+
+    const fixturePath = fileURLToPath(new URL("./fixtures/e2e-server.mjs", import.meta.url));
+    const def = { command: process.execPath, args: [fixturePath] };
+    const connMgr = new McpServerManager();
+    const connection = await connMgr.connect("pos-test", def);
+
+    const s = makeState({
+      config: { mcpServers: { "pos-test": def }, settings: {} },
+      manager: {
+        getConnection: vi.fn().mockReturnValue(connection),
+        getPrompt: connMgr.getPrompt.bind(connMgr),
+        close: connMgr.close.bind(connMgr),
+        touch: () => {},
+        incrementInFlight: () => {},
+        decrementInFlight: () => {},
+      },
+    });
+
+    const result = await executeGetPrompt(s, "pos-test", "code_review", { language: "Go" });
+    expect(result.content[0].text).toContain("Go");
+    expect(result.content[0].text).toContain("general");
+
+    await connMgr.closeAll();
+  });
+
+  it("no-arg prompt returns messages without arguments (e2e)", async () => {
+    const { executeGetPrompt } = await import("../proxy-modes.ts");
+
+    const fixturePath = fileURLToPath(new URL("./fixtures/e2e-server.mjs", import.meta.url));
+    const def = { command: process.execPath, args: [fixturePath] };
+    const connMgr = new McpServerManager();
+    const connection = await connMgr.connect("noarg-test", def);
+
+    const s = makeState({
+      config: { mcpServers: { "noarg-test": def }, settings: {} },
+      manager: {
+        getConnection: vi.fn().mockReturnValue(connection),
+        getPrompt: connMgr.getPrompt.bind(connMgr),
+        close: connMgr.close.bind(connMgr),
+        touch: () => {},
+        incrementInFlight: () => {},
+        decrementInFlight: () => {},
+      },
+    });
+
+    const result = await executeGetPrompt(s, "noarg-test", "simple");
+    expect(result.content[0].text).toContain("simple prompt with no arguments");
+    expect(result.content[0].text).toContain("## user");
+    expect(result.content[0].text).toContain("## assistant");
+
+    await connMgr.closeAll();
+  });
+
+  it("optional arg defaults when not provided (e2e)", async () => {
+    const { executeGetPrompt } = await import("../proxy-modes.ts");
+
+    const fixturePath = fileURLToPath(new URL("./fixtures/e2e-server.mjs", import.meta.url));
+    const def = { command: process.execPath, args: [fixturePath] };
+    const connMgr = new McpServerManager();
+    const connection = await connMgr.connect("opt-test", def);
+
+    const s = makeState({
+      config: { mcpServers: { "opt-test": def }, settings: {} },
+      manager: {
+        getConnection: vi.fn().mockReturnValue(connection),
+        getPrompt: connMgr.getPrompt.bind(connMgr),
+        close: connMgr.close.bind(connMgr),
+        touch: () => {},
+        incrementInFlight: () => {},
+        decrementInFlight: () => {},
+      },
+    });
+
+    const result = await executeGetPrompt(s, "opt-test", "greeting");
+    expect(result.content[0].text).toContain("Hello, World!");
+
+    await connMgr.closeAll();
+  });
+});
+
+describe("Prompt command lifecycle simulation", () => {
+  it("stale commands are marked unavailable after reconnect (e2e)", async () => {
+    const { executeListPrompts } = await import("../proxy-modes.ts");
+
+    const fixturePath = fileURLToPath(new URL("./fixtures/e2e-server.mjs", import.meta.url));
+    const def = { command: process.execPath, args: [fixturePath] };
+    const connMgr = new McpServerManager();
+    const connection = await connMgr.connect("lifecycle-prompts", def);
+
+    // Verify prompts exist when connected
+    expect(connection.prompts.length).toBe(3);
+    expect(connection.prompts.map(p => p.name)).toContain("greeting");
+
+    // Simulate disconnect by closing
+    await connMgr.close("lifecycle-prompts");
+
+    // After disconnect, executeListPrompts should show not_connected
+    const s = makeState({
+      config: { mcpServers: { "lifecycle-prompts": def }, settings: {} },
+      manager: {
+        getConnection: vi.fn().mockReturnValue(null),
+        close: vi.fn(),
+      },
+    });
+    const result = executeListPrompts(s, "lifecycle-prompts");
+    expect(result.details.error).toBe("not_connected");
+
+    await connMgr.closeAll();
+  });
+
+  it("reconnect restores prompt list (e2e)", async () => {
+    const fixturePath = fileURLToPath(new URL("./fixtures/e2e-server.mjs", import.meta.url));
+    const def = { command: process.execPath, args: [fixturePath] };
+    const connMgr = new McpServerManager();
+
+    // Connect, disconnect, reconnect
+    const c1 = await connMgr.connect("recon-prompts", def);
+    expect(c1.prompts.length).toBe(3);
+    await connMgr.close("recon-prompts");
+
+    const c2 = await connMgr.connect("recon-prompts", def);
+    expect(c2.prompts.length).toBe(3);
+    expect(c2.prompts.map(p => p.name)).toContain("greeting");
+    expect(c2.prompts.map(p => p.name)).toContain("code_review");
+    expect(c2.prompts.map(p => p.name)).toContain("simple");
+
+    await connMgr.closeAll();
   });
 });

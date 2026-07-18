@@ -11,17 +11,18 @@ const mocks = vi.hoisted(() => ({
   computeServerHash: vi.fn(() => "hash"),
   serializeTools: vi.fn(() => []),
   serializeResources: vi.fn(() => []),
+  serializePrompts: vi.fn(() => []),
   getMetadataCachePath: vi.fn(() => null),
 }));
 
 vi.mock("../config.ts", () => ({ loadMcpConfig: mocks.loadMcpConfig }));
-vi.mock("../tool-metadata.ts", () => ({ buildToolMetadata: mocks.buildToolMetadata }));
 vi.mock("../metadata-cache.ts", () => ({
   loadMetadataCache: mocks.loadMetadataCache,
   saveMetadataCache: mocks.saveMetadataCache,
   computeServerHash: mocks.computeServerHash,
   serializeTools: mocks.serializeTools,
   serializeResources: mocks.serializeResources,
+  serializePrompts: mocks.serializePrompts,
   getMetadataCachePath: mocks.getMetadataCachePath,
 }));
 vi.mock("../utils.ts", () => ({ openPath: vi.fn(), parallelLimit: async (_: any, __: any, fn: any) => await fn(null) }));

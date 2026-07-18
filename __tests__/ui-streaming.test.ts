@@ -192,13 +192,17 @@ describe("UI Streaming", () => {
   });
 
   describe("McpServerManager stream listeners", () => {
-    function attachNotificationHandler(manager: McpServerManager, serverName = "test-server") {
+    function getStreamHandler(manager: McpServerManager, serverName = "test-server") {
       const client = { setNotificationHandler: vi.fn() };
       (manager as unknown as {
         attachAdapterNotificationHandlers: (serverName: string, client: { setNotificationHandler: typeof client.setNotificationHandler }) => void;
       }).attachAdapterNotificationHandlers(serverName, client);
-      expect(client.setNotificationHandler).toHaveBeenCalledOnce();
-      return client.setNotificationHandler.mock.calls[0][1] as (notification: {
+      // Find the stream-result-patch handler by schema reference equality
+      const callIndex = client.setNotificationHandler.mock.calls.findIndex(
+        (c: [unknown, unknown]) => c[0] === serverStreamResultPatchNotificationSchema,
+      );
+      expect(callIndex).not.toBe(-1);
+      return client.setNotificationHandler.mock.calls[callIndex][1] as (notification: {
         method: string;
         params: {
           streamToken: string;
@@ -210,7 +214,7 @@ describe("UI Streaming", () => {
     it("routes notifications to the matching listener", () => {
       const manager = new McpServerManager();
       const listener = vi.fn();
-      const handleNotification = attachNotificationHandler(manager, "server-a");
+      const handleNotification = getStreamHandler(manager, "server-a");
 
       manager.registerUiStreamListener("token-123", listener);
       const notification = {
@@ -230,7 +234,7 @@ describe("UI Streaming", () => {
     it("does not call removed listeners", () => {
       const manager = new McpServerManager();
       const listener = vi.fn();
-      const handleNotification = attachNotificationHandler(manager);
+      const handleNotification = getStreamHandler(manager);
 
       manager.registerUiStreamListener("token-456", listener);
       manager.removeUiStreamListener("token-456");
@@ -250,7 +254,7 @@ describe("UI Streaming", () => {
       const manager = new McpServerManager();
       const listener1 = vi.fn();
       const listener2 = vi.fn();
-      const handleNotification = attachNotificationHandler(manager, "server-b");
+      const handleNotification = getStreamHandler(manager, "server-b");
 
       manager.registerUiStreamListener("token-1", listener1);
       manager.registerUiStreamListener("token-2", listener2);
