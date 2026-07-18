@@ -1,6 +1,6 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
 const tools = {
   echo: {
@@ -25,9 +25,26 @@ const tools = {
   },
 };
 
+const prompts = {
+  greeting: {
+    description: "A friendly greeting prompt",
+    arguments: [{ name: "name", description: "Name to greet", required: false }],
+  },
+  code_review: {
+    description: "A code review prompt template",
+    arguments: [
+      { name: "language", description: "Programming language", required: true },
+      { name: "focus", description: "Review focus area", required: false },
+    ],
+  },
+  simple: {
+    description: "A simple prompt with no arguments",
+  },
+};
+
 const server = new Server(
   { name: "e2e-test-server", version: "1.0.0" },
-  { capabilities: { tools: {} } }
+  { capabilities: { tools: {}, prompts: {} } }
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -55,6 +72,42 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   throw new Error("Unknown tool: " + name);
+});
+
+server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+  prompts: Object.entries(prompts).map(([name, def]) => ({ name, ...def })),
+}));
+
+server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+
+  if (name === "greeting") {
+    const nameArg = args?.name ?? "World";
+    return {
+      messages: [
+        { role: "user", content: { type: "text", text: `Hello, ${nameArg}! How can I help you today?` } },
+      ],
+    };
+  }
+  if (name === "code_review") {
+    const lang = args?.language ?? "unknown";
+    const focus = args?.focus ?? "general";
+    return {
+      messages: [
+        { role: "user", content: { type: "text", text: `Please review the following ${lang} code focusing on ${focus}.` } },
+      ],
+    };
+  }
+  if (name === "simple") {
+    return {
+      messages: [
+        { role: "user", content: { type: "text", text: "This is a simple prompt with no arguments." } },
+        { role: "assistant", content: { type: "text", text: "I understand. Let me help with that." } },
+      ],
+    };
+  }
+
+  throw new Error("Unknown prompt: " + name);
 });
 
 const transport = new StdioServerTransport();

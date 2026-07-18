@@ -5,12 +5,15 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import {
   ElicitationCompleteNotificationSchema,
+  PromptListChangedNotificationSchema,
   type ReadResourceResult,
   type UrlElicitationRequiredError,
 } from "@modelcontextprotocol/sdk/types.js";
 import type {
-  McpTool,
+  McpPrompt,
+  McpPromptMessage,
   McpResource,
+  McpTool,
   ServerDefinition,
   ServerStreamResultPatchNotification,
   Transport,
@@ -34,6 +37,7 @@ interface ServerConnection {
   definition: ServerDefinition;
   tools: McpTool[];
   resources: McpResource[];
+  prompts: McpPrompt[];
   lastUsedAt: number;
   inFlight: number;
   status: "connected" | "closed" | "needs-auth";
@@ -121,18 +125,19 @@ export class McpServerManager {
       await client.connect(transport);
       this.attachAdapterNotificationHandlers(name, client);
 
-      // Discover tools and resources
-      const [tools, resources] = await Promise.all([
+      // Discover tools, resources, and prompts
+      const [tools, resources, prompts] = await Promise.all([
         this.fetchAllTools(client),
         this.fetchAllResources(client),
+        this.fetchAllPrompts(client),
       ]);
-
       return {
         client,
         transport,
         definition,
         tools,
         resources,
+        prompts,
         lastUsedAt: Date.now(),
         inFlight: 0,
         status: "connected",
@@ -150,6 +155,7 @@ export class McpServerManager {
           definition,
           tools: [],
           resources: [],
+          prompts: [],
           lastUsedAt: Date.now(),
           inFlight: 0,
           status: "needs-auth",
@@ -328,11 +334,36 @@ export class McpServerManager {
     }
   }
 
+  private async fetchAllPrompts(client: Client): Promise<McpPrompt[]> {
+    try {
+      const allPrompts: McpPrompt[] = [];
+      let cursor: string | undefined;
+
+      do {
+        const result = await client.listPrompts(cursor ? { cursor } : undefined);
+        allPrompts.push(...(result.prompts ?? []));
+        cursor = result.nextCursor;
+      } while (cursor);
+
+      return allPrompts;
+    } catch {
+      // Server may not support prompts
+      return [];
+    }
+  }
+
   private attachAdapterNotificationHandlers(serverName: string, client: Client): void {
     client.setNotificationHandler(serverStreamResultPatchNotificationSchema, (notification) => {
       const listener = this.uiStreamListeners.get(notification.params.streamToken);
       if (!listener) return;
       listener(serverName, notification.params);
+    });
+    client.setNotificationHandler(PromptListChangedNotificationSchema, () => {
+      const connection = this.connections.get(serverName);
+      if (connection) {
+        connection.prompts = [];
+        logger.debug(`${serverName}: prompts list changed, clearing cached prompts`);
+      }
     });
   }
 
@@ -354,6 +385,42 @@ export class McpServerManager {
       this.touch(name);
       this.incrementInFlight(name);
       return await connection.client.readResource({ uri });
+    } finally {
+      this.decrementInFlight(name);
+      this.touch(name);
+    }
+  }
+
+  async listPrompts(name: string): Promise<McpPrompt[]> {
+    const connection = this.connections.get(name);
+    if (!connection || connection.status !== "connected") {
+      throw new Error(`Server "${name}" is not connected`);
+    }
+
+    try {
+      this.touch(name);
+      this.incrementInFlight(name);
+      return await this.fetchAllPrompts(connection.client);
+    } finally {
+      this.decrementInFlight(name);
+      this.touch(name);
+    }
+  }
+
+  async getPrompt(name: string, promptName: string, promptArgs?: Record<string, string>): Promise<McpPromptMessage[]> {
+    const connection = this.connections.get(name);
+    if (!connection || connection.status !== "connected") {
+      throw new Error(`Server "${name}" is not connected`);
+    }
+
+    try {
+      this.touch(name);
+      this.incrementInFlight(name);
+      const result = await connection.client.getPrompt({
+        name: promptName,
+        arguments: promptArgs,
+      });
+      return (result.messages ?? []) as McpPromptMessage[];
     } finally {
       this.decrementInFlight(name);
       this.touch(name);

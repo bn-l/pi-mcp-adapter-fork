@@ -37,6 +37,26 @@ export interface McpResource {
   mimeType?: string;
   _meta?: Record<string, unknown>;
 }
+// Prompt definition from MCP server
+export interface McpPrompt {
+  name: string;
+  title?: string;
+  description?: string;
+  arguments?: McpPromptArgument[];
+  _meta?: Record<string, unknown>;
+}
+
+export interface McpPromptArgument {
+  name: string;
+  description?: string;
+  required?: boolean;
+}
+
+// Prompt message from MCP server
+export interface McpPromptMessage {
+  role: "user" | "assistant";
+  content: McpContent;
+}
 
 export interface UiResourceMeta {
   csp?: UiResourceCsp;

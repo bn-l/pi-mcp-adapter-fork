@@ -12,6 +12,7 @@ import {
   loadMetadataCache,
   reconstructToolMetadata,
   saveMetadataCache,
+  serializePrompts,
   serializeResources,
   serializeTools,
   type ServerCacheEntry,
@@ -262,13 +263,15 @@ export function updateMetadataCache(state: McpExtensionState, serverName: string
     resources = existingEntry.resources;
   }
 
+  const prompts = serializePrompts(connection.prompts);
+
   const entry: ServerCacheEntry = {
     configHash,
     tools,
     resources,
+    prompts,
     cachedAt: Date.now(),
   };
-
   saveMetadataCache({ version: 1, servers: { [serverName]: entry } });
 }
 

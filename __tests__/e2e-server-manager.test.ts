@@ -218,4 +218,59 @@ describe("E2E Server Manager — connect failure and edge cases", () => {
     expect(() => manager.incrementInFlight("unknown")).not.toThrow();
     expect(() => manager.decrementInFlight("unknown")).not.toThrow();
   });
+
+  it("discovers prompts from connected server (e2e)", async () => {
+    const manager = new McpServerManager();
+    managers.push(manager);
+    const connection = await manager.connect("prompts-e2e", DEFINITION);
+    expect(connection.status).toBe("connected");
+    expect(connection.prompts.length).toBe(3);
+    const promptNames = connection.prompts.map(p => p.name);
+    expect(promptNames).toContain("greeting");
+    expect(promptNames).toContain("code_review");
+    expect(promptNames).toContain("simple");
+  });
+
+  it("getPrompt returns messages with arguments (e2e)", async () => {
+    const manager = new McpServerManager();
+    managers.push(manager);
+    await manager.connect("getprompt-e2e", DEFINITION);
+
+    const messages = await manager.getPrompt("getprompt-e2e", "greeting", { name: "Bob" });
+    expect(messages.length).toBe(1);
+    expect(messages[0].role).toBe("user");
+    expect(messages[0].content.type).toBe("text");
+    expect((messages[0].content as { type: "text"; text: string }).text).toContain("Hello, Bob!");
+  });
+
+  it("getPrompt returns multi-message response (e2e)", async () => {
+    const manager = new McpServerManager();
+    managers.push(manager);
+    await manager.connect("multi-e2e", DEFINITION);
+
+    const messages = await manager.getPrompt("multi-e2e", "simple");
+    expect(messages.length).toBe(2);
+    expect(messages[0].role).toBe("user");
+    expect(messages[1].role).toBe("assistant");
+  });
+
+  it("listPrompts returns fresh prompts from server (e2e)", async () => {
+    const manager = new McpServerManager();
+    managers.push(manager);
+    await manager.connect("listprompts-e2e", DEFINITION);
+
+    const prompts = await manager.listPrompts("listprompts-e2e");
+    expect(prompts.length).toBe(3);
+    expect(prompts.map(p => p.name)).toContain("greeting");
+  });
+
+  it("listPrompts throws for unknown server", async () => {
+    const manager = new McpServerManager();
+    await expect(manager.listPrompts("unknown")).rejects.toThrow("not connected");
+  });
+
+  it("getPrompt throws for unknown server", async () => {
+    const manager = new McpServerManager();
+    await expect(manager.getPrompt("unknown", "greeting")).rejects.toThrow("not connected");
+  });
 });

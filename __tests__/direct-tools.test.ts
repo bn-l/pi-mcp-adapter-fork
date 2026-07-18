@@ -62,6 +62,33 @@ describe("buildProxyDescription", () => {
     expect(description).not.toContain("MCP + pi");
   });
 
+  it("documents listPrompts and getPrompt actions", () => {
+    const config: McpConfig = {
+      mcpServers: {
+        demo: { command: "npx", args: ["-y", "demo-server"] },
+      },
+    };
+
+    const cache: MetadataCache = {
+      version: 1,
+      servers: {
+        demo: {
+          configHash: "hash",
+          cachedAt: Date.now(),
+          tools: [{ name: "echo", description: "echo" }],
+          resources: [],
+          prompts: [],
+        },
+      },
+    };
+
+    const description = buildProxyDescription(config, cache, []);
+    expect(description).toContain('mcp({ listPrompts: "server-name" })');
+    expect(description).toContain("List prompts from a server");
+    expect(description).toContain('mcp({ getPrompt: "name", server: "server-name" })');
+    expect(description).toContain("Get a prompt from a server");
+  });
+
   it("excludes configured tools from proxy summaries", () => {
     const config: McpConfig = {
       settings: { toolPrefix: "server" },

@@ -26,10 +26,17 @@ export interface CachedResource {
   description?: string;
 }
 
+export interface CachedPrompt {
+  name: string;
+  description?: string;
+  arguments?: Array<{ name: string; description?: string; required?: boolean }>;
+}
+
 export interface ServerCacheEntry {
   configHash: string;
   tools: CachedTool[];
   resources: CachedResource[];
+  prompts: CachedPrompt[];
   cachedAt: number;
 }
 
@@ -176,6 +183,20 @@ export function serializeResources(resources: McpResource[]): CachedResource[] {
       uri: r.uri,
       name: r.name,
       description: r.description,
+    }));
+}
+
+export function serializePrompts(prompts: import("./types.ts").McpPrompt[]): CachedPrompt[] {
+  return prompts
+    .filter(p => p?.name)
+    .map(p => ({
+      name: p.name,
+      description: p.description,
+      arguments: p.arguments?.map(a => ({
+        name: a.name,
+        description: a.description,
+        required: a.required,
+      })),
     }));
 }
 

@@ -258,8 +258,9 @@ export function buildProxyDescription(
   desc += `  mcp({ action: "ui-messages" })        → Retrieve accumulated messages from completed UI sessions\n`;
   desc += `  mcp({ action: "auth-start", server: "name" })      → Start manual OAuth and get a browser URL\n`;
   desc += `  mcp({ action: "auth-complete", server: "name", args: '{"redirectUrl":"..."}' }) → Complete manual OAuth\n`;
+  desc += `  mcp({ listPrompts: "server-name" })   → List prompts from a server\n`;
+  desc += `  mcp({ getPrompt: "name", server: "server-name" })  → Get a prompt from a server\n`;
   desc += `\nMode: action > tool (call) > connect > describe > search > server (list) > nothing (status)`;
-
   return desc;
 }
 

@@ -277,3 +277,86 @@ describe("executeConnect", () => {
     expect(result.details.error).toBe("connect_failed");
   });
 });
+
+describe("executeListPrompts edge cases", () => {
+  it("returns error for unknown server", async () => {
+    const { executeListPrompts } = await import("../proxy-modes.ts");
+    const result = executeListPrompts(makeState(), "unknown");
+    expect(result.details.error).toBe("not_found");
+  });
+
+  it("returns not_connected for server with no connection", async () => {
+    const { executeListPrompts } = await import("../proxy-modes.ts");
+    const s = makeState({
+      config: { mcpServers: { srv: { command: "x" } }, settings: {} },
+      manager: { getConnection: vi.fn().mockReturnValue(null) },
+    });
+    const result = executeListPrompts(s, "srv");
+    expect(result.details.error).toBe("not_connected");
+  });
+
+  it("returns server_backoff when failure age is set", async () => {
+    const { executeListPrompts } = await import("../proxy-modes.ts");
+    mocks.getFailureAgeSeconds.mockReturnValue(30);
+    const s = makeState({
+      config: { mcpServers: { srv: { command: "x" } }, settings: {} },
+      manager: { getConnection: vi.fn().mockReturnValue(null) },
+    });
+    const result = executeListPrompts(s, "srv");
+    expect(result.details.error).toBe("server_backoff");
+    expect(result.content[0].text).toContain("30s ago");
+    mocks.getFailureAgeSeconds.mockReturnValue(null);
+  });
+
+  it("shows prompt arguments with required marker", async () => {
+    const { executeListPrompts } = await import("../proxy-modes.ts");
+    const s = makeState({
+      config: { mcpServers: { srv: { command: "x" } }, settings: {} },
+      manager: {
+        getConnection: vi.fn().mockReturnValue({
+          status: "connected",
+          prompts: [
+            { name: "test", description: "A test", arguments: [{ name: "arg1", required: true }, { name: "arg2", required: false }] },
+          ],
+        }),
+      },
+    });
+    const result = executeListPrompts(s, "srv");
+    expect(result.content[0].text).toContain("arg1*");
+    expect(result.content[0].text).toContain("arg2");
+  });
+});
+
+describe("executeGetPrompt edge cases", () => {
+  it("returns error for unknown server", async () => {
+    const { executeGetPrompt } = await import("../proxy-modes.ts");
+    const result = await executeGetPrompt(makeState(), "unknown", "greeting");
+    expect(result.details.error).toBe("not_found");
+  });
+
+  it("returns not_connected for server with no connection", async () => {
+    const { executeGetPrompt } = await import("../proxy-modes.ts");
+    const s = makeState({
+      config: { mcpServers: { srv: { command: "x" } }, settings: {} },
+      manager: { getConnection: vi.fn().mockReturnValue(null) },
+    });
+    const result = await executeGetPrompt(s, "srv", "greeting");
+    expect(result.details.error).toBe("not_connected");
+  });
+
+  it("handles getPrompt failure", async () => {
+    const { executeGetPrompt } = await import("../proxy-modes.ts");
+    const s = makeState({
+      config: { mcpServers: { srv: { command: "x" } }, settings: {} },
+      manager: {
+        getConnection: vi.fn().mockReturnValue({
+          status: "connected",
+          client: {},
+        }),
+        getPrompt: vi.fn().mockRejectedValue(new Error("prompt not found")),
+      },
+    });
+    const result = await executeGetPrompt(s, "srv", "nonexistent");
+    expect(result.details.error).toBe("get_prompt_failed");
+  });
+});

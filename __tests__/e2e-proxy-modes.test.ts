@@ -1,8 +1,8 @@
 /**
  * E2E tests for proxy-modes.ts — status, search, list, connect,
- * describe, call, auth-start.
+ * describe, call, auth-start, list-prompts, get-prompt.
  *
- * Uses real MCP stdio server for call/connect/describe/search/list.
+ * Uses real MCP stdio server for call/connect/describe/search/list/prompts.
  * Status and auth-start use constructed state.
  */
 import { afterEach, describe, expect, it } from "vitest";
@@ -13,7 +13,9 @@ import {
   executeCall,
   executeConnect,
   executeDescribe,
+  executeGetPrompt,
   executeList,
+  executeListPrompts,
   executeSearch,
   executeStatus,
   executeAuthStart,
@@ -260,5 +262,93 @@ describe("E2E Proxy Modes", () => {
     (result.details as any).matches.forEach((m: any) => {
       expect(m.server).toBe("filter-test");
     });
+  });
+});
+
+describe("E2E Prompts", () => {
+  it("executeListPrompts lists all prompts from a connected server (e2e)", async () => {
+    const state = await connectAndBuildState("prompts-list");
+
+    const result = executeListPrompts(state, "prompts-list");
+    expect(result.content[0].text).toContain("greeting");
+    expect(result.content[0].text).toContain("code_review");
+    expect(result.content[0].text).toContain("simple");
+    expect(result.content[0].text).toContain("3 prompts");
+    expect((result.details as any).count).toBe(3);
+  });
+
+  it("executeListPrompts shows prompt arguments (e2e)", async () => {
+    const state = await connectAndBuildState("prompts-args");
+
+    const result = executeListPrompts(state, "prompts-args");
+    expect(result.content[0].text).toContain("greeting");
+    expect(result.content[0].text).toContain("name");
+    expect(result.content[0].text).toContain("code_review");
+    expect(result.content[0].text).toContain("language*");
+    expect(result.content[0].text).toContain("focus");
+  });
+
+  it("executeListPrompts returns error for unknown server", () => {
+    const state = {
+      config: { mcpServers: {} },
+      toolMetadata: new Map(),
+      manager: {
+        getConnection: () => null,
+      },
+      failureTracker: new Map(),
+    } as unknown as McpExtensionState;
+
+    const result = executeListPrompts(state, "unknown");
+    expect(result.details).toMatchObject({ error: "not_found" });
+  });
+
+  it("executeListPrompts returns empty list for server with no prompts", async () => {
+    const state = await connectAndBuildState("no-prompts");
+    // Override the connection to have no prompts
+    const conn = state.manager.getConnection("no-prompts");
+    if (conn) conn.prompts = [];
+
+    const result = executeListPrompts(state, "no-prompts");
+    expect(result.content[0].text).toContain("no prompts");
+  });
+
+  it("executeGetPrompt returns prompt messages (e2e)", async () => {
+    const state = await connectAndBuildState("get-prompt-test");
+
+    const result = await executeGetPrompt(state, "get-prompt-test", "greeting", { name: "Alice" });
+    expect(result.content[0].text).toContain('Prompt "greeting"');
+    expect(result.content[0].text).toContain("Hello, Alice!");
+    expect(result.content[0].text).toContain("## user");
+  });
+
+  it("executeGetPrompt returns multi-message prompt (e2e)", async () => {
+    const state = await connectAndBuildState("multi-prompt");
+
+    const result = await executeGetPrompt(state, "multi-prompt", "simple");
+    expect(result.content[0].text).toContain("## user");
+    expect(result.content[0].text).toContain("## assistant");
+    expect(result.content[0].text).toContain("simple prompt with no arguments");
+  });
+
+  it("executeGetPrompt returns error for unknown server", async () => {
+    const state = {
+      config: { mcpServers: {} },
+      toolMetadata: new Map(),
+      manager: {
+        getConnection: () => null,
+      },
+      failureTracker: new Map(),
+    } as unknown as McpExtensionState;
+
+    const result = await executeGetPrompt(state, "unknown", "greeting");
+    expect(result.details).toMatchObject({ error: "not_found" });
+  });
+
+  it("executeGetPrompt handles missing required args gracefully", async () => {
+    const state = await connectAndBuildState("missing-args");
+
+    const result = await executeGetPrompt(state, "missing-args", "code_review", { language: "TypeScript" });
+    expect(result.content[0].text).toContain("TypeScript");
+    expect(result.content[0].text).toContain("general");
   });
 });

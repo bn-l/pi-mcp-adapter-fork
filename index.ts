@@ -6,7 +6,7 @@ import { loadMcpConfig } from "./config.ts";
 import { buildProxyDescription, createDirectToolExecutor, getMissingConfiguredDirectToolServers, resolveDirectTools } from "./direct-tools.ts";
 import { flushMetadataCache, initializeMcp, updateStatusBar } from "./init.ts";
 import { loadMetadataCache } from "./metadata-cache.ts";
-import { executeAuthComplete, executeAuthStart, executeCall, executeConnect, executeDescribe, executeList, executeSearch, executeStatus, executeUiMessages } from "./proxy-modes.ts";
+import { executeAuthComplete, executeAuthStart, executeCall, executeConnect, executeDescribe, executeGetPrompt, executeList, executeListPrompts, executeSearch, executeStatus, executeUiMessages } from "./proxy-modes.ts";
 import { getConfigPathFromArgv, truncateAtWord } from "./utils.ts";
 import { initializeOAuth, shutdownOAuth } from "./mcp-auth-flow.ts";
 import { createMcpDirectToolCallRenderer, renderMcpProxyToolCall, renderMcpToolResult } from "./tool-result-renderer.ts";
@@ -264,6 +264,8 @@ export default function mcpAdapter(pi: ExtensionAPI) {
         includeSchemas: Type.Optional(Type.Boolean({ description: "Include parameter schemas in search results (default: true)" })),
         server: Type.Optional(Type.String({ description: "Filter to specific server (also disambiguates tool calls)" })),
         action: Type.Optional(Type.String({ description: "Action: 'ui-messages', 'auth-start', or 'auth-complete'" })),
+        listPrompts: Type.Optional(Type.String({ description: "List prompts from a server (requires server param)" })),
+        getPrompt: Type.Optional(Type.String({ description: "Get a prompt by name from a server (requires server param)" })),
       }),
       renderResult: renderMcpToolResult,
       async execute(_toolCallId, params: {
@@ -276,6 +278,8 @@ export default function mcpAdapter(pi: ExtensionAPI) {
         includeSchemas?: boolean;
         server?: string;
         action?: string;
+        listPrompts?: string;
+        getPrompt?: string;
       }, _signal, _onUpdate, _ctx) {
         let parsedArgs: Record<string, unknown> | undefined;
         if (params.args) {
@@ -338,6 +342,19 @@ export default function mcpAdapter(pi: ExtensionAPI) {
             };
           }
           return executeAuthComplete(state, params.server, input);
+        }
+        if (params.listPrompts) {
+          return executeListPrompts(state, params.listPrompts);
+        }
+        if (params.getPrompt) {
+          if (!params.server) {
+            return {
+              content: [{ type: "text" as const, text: "getPrompt requires `server`. Example: mcp({ getPrompt: \"greeting\", server: \"my-server\" })" }],
+              details: { mode: "get-prompt", error: "missing_server" },
+            };
+          }
+          const promptArgs = parsedArgs as Record<string, string> | undefined;
+          return executeGetPrompt(state, params.server, params.getPrompt, promptArgs);
         }
         if (params.tool) {
           return executeCall(state, params.tool, parsedArgs, params.server, getPiTools);

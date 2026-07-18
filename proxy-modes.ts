@@ -356,6 +356,121 @@ export function executeDescribe(state: McpExtensionState, toolName: string): Pro
   };
 }
 
+export function executeListPrompts(state: McpExtensionState, server: string): ProxyToolResult {
+  if (!state.config.mcpServers[server]) {
+    return {
+      content: [{ type: "text" as const, text: `Server "${server}" not found. Use mcp({}) to see available servers.` }],
+      details: { mode: "list-prompts", server, prompts: [], count: 0, error: "not_found" },
+    };
+  }
+
+  const connection = state.manager.getConnection(server);
+  if (!connection || connection.status !== "connected") {
+    const failedAgo = getFailureAgeSeconds(state, server);
+    if (failedAgo !== null) {
+      return {
+        content: [{ type: "text" as const, text: `Server "${server}" not available (last failed ${failedAgo}s ago)` }],
+        details: { mode: "list-prompts", server, prompts: [], count: 0, error: "server_backoff" },
+      };
+    }
+    return {
+      content: [{ type: "text" as const, text: `Server "${server}" is not connected. Use mcp({ connect: "${server}" }) to connect.` }],
+      details: { mode: "list-prompts", server, prompts: [], count: 0, error: "not_connected" },
+    };
+  }
+
+  const prompts = connection.prompts;
+
+  if (prompts.length === 0) {
+    return {
+      content: [{ type: "text" as const, text: `Server "${server}" has no prompts.` }],
+      details: { mode: "list-prompts", server, prompts: [], count: 0 },
+    };
+  }
+
+  let text = `${server} (${prompts.length} prompt${prompts.length === 1 ? "" : "s"}):\n\n`;
+  for (const prompt of prompts) {
+    text += `- ${prompt.name}`;
+    if (prompt.description) {
+      text += ` - ${truncateAtWord(prompt.description, 60)}`;
+    }
+    if (prompt.arguments && prompt.arguments.length > 0) {
+      const argNames = prompt.arguments.map(a => a.required ? `${a.name}*` : a.name).join(", ");
+      text += `\n  arguments: ${argNames}`;
+    }
+    text += "\n";
+  }
+
+  return {
+    content: [{ type: "text" as const, text: text.trim() }],
+    details: { mode: "list-prompts", server, prompts: prompts.map(p => p.name), count: prompts.length },
+  };
+}
+
+export async function executeGetPrompt(
+  state: McpExtensionState,
+  server: string,
+  promptName: string,
+  promptArgs?: Record<string, string>,
+): Promise<ProxyToolResult> {
+  if (!state.config.mcpServers[server]) {
+    return {
+      content: [{ type: "text" as const, text: `Server "${server}" not found. Use mcp({}) to see available servers.` }],
+      details: { mode: "get-prompt", server, error: "not_found" },
+    };
+  }
+
+  const connection = state.manager.getConnection(server);
+  if (!connection || connection.status !== "connected") {
+    const failedAgo = getFailureAgeSeconds(state, server);
+    if (failedAgo !== null) {
+      return {
+        content: [{ type: "text" as const, text: `Server "${server}" not available (last failed ${failedAgo}s ago)` }],
+        details: { mode: "get-prompt", server, error: "server_backoff" },
+      };
+    }
+    return {
+      content: [{ type: "text" as const, text: `Server "${server}" is not connected. Use mcp({ connect: "${server}" }) to connect.` }],
+      details: { mode: "get-prompt", server, error: "not_connected" },
+    };
+  }
+
+  try {
+    const messages = await state.manager.getPrompt(server, promptName, promptArgs);
+
+    const output: string[] = [];
+    output.push(`Prompt "${promptName}" from "${server}":\n`);
+
+    for (const msg of messages) {
+      output.push(`## ${msg.role}`);
+      if (msg.content.type === "text") {
+        output.push(msg.content.text ?? "");
+      } else if (msg.content.type === "image") {
+        output.push(`[Image: ${msg.content.mimeType ?? "image/*"}]`);
+      } else if (msg.content.type === "resource") {
+        output.push(`[Resource: ${msg.content.resource?.uri ?? "(no URI)"}]`);
+        if (msg.content.resource?.text) {
+          output.push(msg.content.resource.text);
+        }
+      } else {
+        output.push(JSON.stringify(msg.content));
+      }
+      output.push("");
+    }
+
+    return {
+      content: [{ type: "text" as const, text: output.join("\n").trim() }],
+      details: { mode: "get-prompt", server, promptName, messageCount: messages.length },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      content: [{ type: "text" as const, text: `Failed to get prompt "${promptName}" from "${server}": ${message}` }],
+      details: { mode: "get-prompt", server, promptName, error: "get_prompt_failed", message },
+    };
+  }
+}
+
 export function executeSearch(
   state: McpExtensionState,
   query: string,
