@@ -263,6 +263,30 @@ export default function mcpAdapter(pi: ExtensionAPI) {
     });
   }
 
+  // Bootstrap prompt commands from metadata cache at load time so they
+  // appear in slash-command autocomplete before servers connect.
+  if (earlyCache) {
+    for (const [serverName, entry] of Object.entries(earlyCache.servers)) {
+      if (!earlyConfig.mcpServers[serverName]) continue;
+      for (const prompt of entry.prompts ?? []) {
+        const commandName = `${serverName}:${prompt.name}`;
+        pi.registerCommand(commandName, {
+          description: prompt.description || `MCP prompt from ${serverName}`,
+          handler: createPromptCommandHandler(
+            serverName,
+            prompt.name,
+            prompt.arguments?.map(a => ({
+              name: a.name,
+              description: a.description,
+              required: a.required,
+            })) as McpPromptArgument[] | undefined,
+          ),
+        });
+        registeredPromptCommands.add(commandName);
+      }
+    }
+  }
+
   const getPiTools = (): ToolInfo[] => pi.getAllTools();
 
   pi.registerFlag("mcp-config", {
